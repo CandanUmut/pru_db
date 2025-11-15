@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use anyhow::{anyhow, Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use rand::Rng;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -10,11 +10,15 @@ use pru_core::{
     postings::{decode_sorted_u64, encode_sorted_u64, merge_sorted},
     resolver_store::{ResolveMode, ResolverStore},
     segment::{SegmentReader, SegmentWriter},
-    Fact, PruStore,
+    Fact, PruStore, Query,
 };
 
 #[derive(Parser)]
-#[command(name = "pru", about = "PRU-DB CLI — core ops")]
+#[command(
+    name = "pru",
+    about = "PRU-DB CLI — core ops",
+    long_about = "High-level CLI for PRU-DB. Manage atoms (entities, predicates, literals), facts, and low-level segments."
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -29,131 +33,215 @@ enum CliResolveMode {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Initialize a PRU-DB directory (creates manifest and tables)
     Init {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR", help = "Data directory to initialize")]
         dir: PathBuf,
     },
 
+    /// Add a resolver segment from a hex key and id list
     AddResolver {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, value_name = "HEX", help = "Resolver key (hex-encoded)")]
         key_hex: String,
-        #[arg(long, num_args=1.., value_delimiter=',')]
+        #[arg(long, num_args = 1.., value_delimiter = ',', value_name = "ID")]
         ids: Vec<u64>,
     },
 
+    /// Resolve ids using resolver segments
     Resolve {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, value_name = "HEX", help = "Primary resolver key (hex)")]
         key_hex: String,
         /// Optional extra keys for intersect/union
-        #[arg(long, value_name="HEX", num_args=0.., value_delimiter=',')]
+        #[arg(long, value_name = "HEX", num_args = 0.., value_delimiter = ',')]
         and_key_hex: Vec<String>,
         /// union (default), dedup, intersect
-        #[arg(long, value_enum, default_value_t=CliResolveMode::Union)]
+        #[arg(long, value_enum, default_value_t = CliResolveMode::Union)]
         mode: CliResolveMode,
-        /// intersect'i set-kesişimi gibi uygula (operandları önce dedup et)
+        /// Apply set-like intersection semantics after deduplication
         #[arg(long, default_value_t = false)]
         set: bool,
     },
 
+    /// Verify segments on disk
     Verify {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
     },
 
+    /// Compact resolver segments
     Compact {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
     },
 
+    /// Promote a compacted resolver segment to active
     Promote {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
     },
 
+    /// Inspect manifest and segments
     Info {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
     },
 
+    /// Entity dictionary operations
     Entity {
         #[command(subcommand)]
         cmd: EntityCmd,
     },
 
+    /// Predicate dictionary operations
     Predicate {
         #[command(subcommand)]
         cmd: PredicateCmd,
     },
 
+    /// Literal dictionary operations
     Literal {
         #[command(subcommand)]
         cmd: LiteralCmd,
     },
 
+    /// Fact operations
     Fact {
         #[command(subcommand)]
         cmd: FactCmd,
     },
+
+    /// Run an ad-hoc fact query
+    Query(QueryCmd),
 }
 
 #[derive(Subcommand)]
 enum EntityCmd {
+    /// Intern a new entity name
     Add {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, value_name = "NAME")]
         name: String,
+    },
+    /// List all known entities
+    List {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
 enum PredicateCmd {
+    /// Intern a new predicate name
     Add {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, value_name = "NAME")]
         name: String,
+    },
+    /// List all predicates
+    List {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
 enum LiteralCmd {
+    /// Intern a new literal value
     Add {
-        #[arg(long)]
+        #[arg(long, value_name = "DIR")]
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, value_name = "VALUE")]
         value: String,
+    },
+    /// List all literals
+    List {
+        #[arg(long, value_name = "DIR")]
+        dir: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
 enum FactCmd {
-    Add {
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long, value_name = "ID")]
-        subject_id: u64,
-        #[arg(long, value_name = "ID")]
-        predicate_id: u64,
-        #[arg(long, value_name = "ID")]
-        object_id: u64,
-        #[arg(long, value_name = "ID")]
-        source_id: Option<u64>,
-        #[arg(long)]
-        timestamp: Option<i64>,
-    },
-    List {
-        #[arg(long)]
-        dir: PathBuf,
-        #[arg(long, value_name = "ID")]
-        subject_id: u64,
-        #[arg(long, value_name = "ID")]
-        predicate_id: Option<u64>,
-    },
+    /// Append a fact with optional metadata
+    Add(FactAddCmd),
+    /// List facts for a subject (optionally filtered by predicate)
+    List(FactListCmd),
+    /// Run a query with optional filters
+    Query(QueryCmd),
+}
+
+#[derive(Args)]
+struct FactAddCmd {
+    #[arg(long, value_name = "DIR")]
+    dir: PathBuf,
+    #[arg(long, value_name = "ID", help = "Subject id")]
+    subject_id: Option<u64>,
+    #[arg(long, value_name = "NAME", help = "Subject name (entity)")]
+    subject: Option<String>,
+    #[arg(long, value_name = "ID", help = "Predicate id")]
+    predicate_id: Option<u64>,
+    #[arg(long, value_name = "NAME", help = "Predicate name")]
+    predicate: Option<String>,
+    #[arg(long, value_name = "ID", help = "Object id (entity or literal)")]
+    object_id: Option<u64>,
+    #[arg(long, value_name = "VALUE", help = "Object literal or entity name")]
+    object: Option<String>,
+    #[arg(long, value_name = "ID")]
+    source_id: Option<u64>,
+    #[arg(long)]
+    timestamp: Option<i64>,
+    #[arg(long, value_name = "FLOAT", help = "Confidence score (default 1.0)")]
+    confidence: Option<f32>,
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Render facts in a human-readable form"
+    )]
+    pretty: bool,
+}
+
+#[derive(Args)]
+struct FactListCmd {
+    #[arg(long, value_name = "DIR")]
+    dir: PathBuf,
+    #[arg(long, value_name = "ID")]
+    subject_id: Option<u64>,
+    #[arg(long, value_name = "NAME")]
+    subject: Option<String>,
+    #[arg(long, value_name = "ID")]
+    predicate_id: Option<u64>,
+    #[arg(long, value_name = "NAME")]
+    predicate: Option<String>,
+    #[arg(long, default_value_t = false)]
+    pretty: bool,
+}
+
+#[derive(Args, Clone)]
+struct QueryCmd {
+    #[arg(long, value_name = "DIR")]
+    dir: PathBuf,
+    #[arg(long, value_name = "ID")]
+    subject_id: Option<u64>,
+    #[arg(long, value_name = "NAME")]
+    subject: Option<String>,
+    #[arg(long, value_name = "ID")]
+    predicate_id: Option<u64>,
+    #[arg(long, value_name = "NAME")]
+    predicate: Option<String>,
+    #[arg(long, value_name = "ID")]
+    object_id: Option<u64>,
+    #[arg(long, value_name = "VALUE")]
+    object: Option<String>,
+    #[arg(long, value_name = "FLOAT")]
+    min_confidence: Option<f32>,
+    #[arg(long, default_value_t = false)]
+    pretty: bool,
 }
 
 fn ensure_dir(p: &Path) -> Result<()> {
@@ -169,14 +257,14 @@ fn now_id() -> String {
     let now = time::OffsetDateTime::now_utc();
     let secs = now.unix_timestamp();
     let nanos = now.nanosecond();
-    let mut rng = rand::thread_rng();
-    let r: u16 = rng.gen();
+    let mut rng = rand::rng();
+    let r: u16 = rng.random();
     format!("{secs}-{nanos:09}-{r:04x}")
 }
 
 fn open_store(dir: &Path) -> Result<PruStore> {
     ensure_dir(dir)?;
-    Ok(PruStore::open(dir)?)
+    PruStore::open(dir).with_context(|| format!("failed to open store at {}", dir.display()))
 }
 
 fn render_atom(store: &PruStore, id: u64) -> String {
@@ -192,7 +280,7 @@ fn render_atom(store: &PruStore, id: u64) -> String {
     format!("#{id}")
 }
 
-fn print_fact(store: &PruStore, fact: &Fact) {
+fn fact_line(store: &PruStore, fact: &Fact, pretty: bool) -> String {
     let subj = render_atom(store, fact.subject);
     let pred = render_atom(store, fact.predicate);
     let obj = render_atom(store, fact.object);
@@ -204,7 +292,123 @@ fn print_fact(store: &PruStore, fact: &Fact) {
         .source
         .map(|s| format!(" source={}", s))
         .unwrap_or_default();
-    println!("{subj} --{pred}--> {obj}{src}{ts}");
+    let conf = fact
+        .confidence
+        .map(|c| format!(" conf={:.2}", c))
+        .unwrap_or_default();
+
+    if pretty {
+        let s_name = store
+            .get_entity_name(fact.subject)
+            .unwrap_or_else(|| format!("#{}", fact.subject));
+        let p_name = store
+            .get_predicate_name(fact.predicate)
+            .unwrap_or_else(|| format!("#{}", fact.predicate));
+        let o_name = store
+            .get_entity_name(fact.object)
+            .or_else(|| store.get_literal_value(fact.object))
+            .unwrap_or_else(|| format!("#{}", fact.object));
+        return format!("{s_name} {p_name} {o_name}{src}{conf}{ts}");
+    }
+
+    format!("{subj} --{pred}--> {obj}{src}{conf}{ts}")
+}
+
+fn print_fact(store: &PruStore, fact: &Fact, pretty: bool) {
+    println!("{}", fact_line(store, fact, pretty));
+}
+
+fn resolve_entity(store: &PruStore, id: Option<u64>, name: Option<String>) -> Result<u64> {
+    match (id, name) {
+        (Some(i), None) => Ok(i),
+        (None, Some(n)) => store
+            .get_entity_id(&n)
+            .ok_or_else(|| anyhow!("Entity not found for name: {n}")),
+        (Some(_), Some(_)) => Err(anyhow!(
+            "Specify either --subject-id or --subject, not both"
+        )),
+        (None, None) => Err(anyhow!(
+            "Subject is required (use --subject-id or --subject)"
+        )),
+    }
+}
+
+fn resolve_predicate(store: &PruStore, id: Option<u64>, name: Option<String>) -> Result<u64> {
+    match (id, name) {
+        (Some(i), None) => Ok(i),
+        (None, Some(n)) => store
+            .get_predicate_id(&n)
+            .ok_or_else(|| anyhow!("Predicate not found for name: {n}")),
+        (Some(_), Some(_)) => Err(anyhow!(
+            "Specify either --predicate-id or --predicate, not both"
+        )),
+        (None, None) => Err(anyhow!(
+            "Predicate is required (use --predicate-id or --predicate)"
+        )),
+    }
+}
+
+fn resolve_object(store: &PruStore, id: Option<u64>, name: Option<String>) -> Result<u64> {
+    match (id, name) {
+        (Some(i), None) => Ok(i),
+        (None, Some(n)) => store
+            .get_literal_id(&n)
+            .or_else(|| store.get_entity_id(&n))
+            .ok_or_else(|| anyhow!("Object not found for value/name: {n}")),
+        (Some(_), Some(_)) => Err(anyhow!("Specify either --object-id or --object, not both")),
+        (None, None) => Err(anyhow!("Object is required (use --object-id or --object)")),
+    }
+}
+
+fn handle_fact_list(store: &PruStore, args: FactListCmd) -> Result<()> {
+    let subject = resolve_entity(store, args.subject_id, args.subject)?;
+    let facts = if let Some(pred) = args.predicate_id {
+        store.facts_for_subject_predicate(subject, pred)?
+    } else if let Some(pred_name) = args.predicate {
+        let pid = resolve_predicate(store, None, Some(pred_name))?;
+        store.facts_for_subject_predicate(subject, pid)?
+    } else {
+        store.facts_for_subject(subject)?
+    };
+
+    if facts.is_empty() {
+        println!("no facts found");
+        return Ok(());
+    }
+    for f in &facts {
+        print_fact(store, f, args.pretty);
+    }
+    Ok(())
+}
+
+fn handle_query(store: &PruStore, args: QueryCmd) -> Result<()> {
+    let subject = match (args.subject_id, args.subject) {
+        (None, None) => None,
+        (id, name) => Some(resolve_entity(store, id, name)?),
+    };
+    let predicate = match (args.predicate_id, args.predicate) {
+        (None, None) => None,
+        (id, name) => Some(resolve_predicate(store, id, name)?),
+    };
+    let object = match (args.object_id, args.object) {
+        (None, None) => None,
+        (id, name) => Some(resolve_object(store, id, name)?),
+    };
+
+    let query = Query {
+        subject,
+        predicate,
+        object,
+        min_confidence: args.min_confidence,
+    };
+    let res = store.query(query)?;
+    if res.is_empty() {
+        println!("no facts matched query");
+    }
+    for f in &res {
+        print_fact(store, f, args.pretty);
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -423,6 +627,16 @@ fn main() -> Result<()> {
                 let id = store.intern_entity(&name)?;
                 println!("entity added: {name} -> #{id}");
             }
+            EntityCmd::List { dir } => {
+                let store = open_store(&dir)?;
+                let entities = store.entities();
+                if entities.is_empty() {
+                    println!("no entities found");
+                }
+                for (id, name) in entities {
+                    println!("#{id}\t{name}");
+                }
+            }
         },
 
         Cmd::Predicate { cmd } => match cmd {
@@ -430,6 +644,16 @@ fn main() -> Result<()> {
                 let mut store = open_store(&dir)?;
                 let id = store.intern_predicate(&name)?;
                 println!("predicate added: {name} -> #{id}");
+            }
+            PredicateCmd::List { dir } => {
+                let store = open_store(&dir)?;
+                let preds = store.predicates();
+                if preds.is_empty() {
+                    println!("no predicates found");
+                }
+                for (id, name) in preds {
+                    println!("#{id}\t{name}");
+                }
             }
         },
 
@@ -439,47 +663,51 @@ fn main() -> Result<()> {
                 let id = store.intern_literal(&value)?;
                 println!("literal added: {value} -> #{id}");
             }
+            LiteralCmd::List { dir } => {
+                let store = open_store(&dir)?;
+                let lits = store.literals();
+                if lits.is_empty() {
+                    println!("no literals found");
+                }
+                for (id, value) in lits {
+                    println!("#{id}\t{value}");
+                }
+            }
         },
 
         Cmd::Fact { cmd } => match cmd {
-            FactCmd::Add {
-                dir,
-                subject_id,
-                predicate_id,
-                object_id,
-                source_id,
-                timestamp,
-            } => {
-                let mut store = open_store(&dir)?;
+            FactCmd::Add(args) => {
+                let mut store = open_store(&args.dir)?;
+                let subject_id = resolve_entity(&store, args.subject_id, args.subject)?;
+                let predicate_id = resolve_predicate(&store, args.predicate_id, args.predicate)?;
+                let object_id = resolve_object(&store, args.object_id, args.object)?;
+
                 let fact = Fact {
                     subject: subject_id,
                     predicate: predicate_id,
                     object: object_id,
-                    source: source_id,
-                    timestamp,
+                    source: args.source_id,
+                    timestamp: Some(args.timestamp.unwrap_or_else(now_ts)),
+                    confidence: args.confidence.or(Some(1.0)),
                 };
-                store.add_fact(fact)?;
+                store.add_fact(fact.clone())?;
+                print_fact(&store, &fact, args.pretty);
                 println!("fact appended for subject #{subject_id}");
             }
-            FactCmd::List {
-                dir,
-                subject_id,
-                predicate_id,
-            } => {
-                let store = open_store(&dir)?;
-                let facts = if let Some(pred) = predicate_id {
-                    store.facts_for_subject_predicate(subject_id, pred)?
-                } else {
-                    store.facts_for_subject(subject_id)?
-                };
-                if facts.is_empty() {
-                    println!("no facts found");
-                }
-                for f in &facts {
-                    print_fact(&store, f);
-                }
+            FactCmd::List(args) => {
+                let store = open_store(&args.dir)?;
+                handle_fact_list(&store, args)?;
+            }
+            FactCmd::Query(args) => {
+                let store = open_store(&args.dir)?;
+                handle_query(&store, args)?;
             }
         },
+
+        Cmd::Query(args) => {
+            let store = open_store(&args.dir)?;
+            handle_query(&store, args)?;
+        }
     }
     Ok(())
 }

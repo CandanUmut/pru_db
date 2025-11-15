@@ -16,4 +16,4 @@ pub use postings::{decode_sorted_u64, encode_sorted_u64, intersect_sorted, merge
 pub use resolver::{KeyKind, ResolverKey};
 pub use resolver_store::ResolveMode; // ← ek
 pub use segment::{SegmentReader, SegmentWriter};
-pub use truth_store::{Fact, PruStore};
+pub use truth_store::{Fact, PruStore, Query};

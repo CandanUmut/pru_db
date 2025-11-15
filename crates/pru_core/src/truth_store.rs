@@ -5,17 +5,23 @@ use crate::resolver_store::ResolverStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
 /// Minimal fact representation stored by the high-level API.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Fact {
     pub subject: EntityId,
     pub predicate: PredicateId,
     pub object: AtomId,
     pub source: Option<u64>,
     pub timestamp: Option<i64>,
+    #[serde(default = "default_confidence")]
+    pub confidence: Option<f32>,
+}
+
+fn default_confidence() -> Option<f32> {
+    Some(1.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +115,18 @@ impl PruStore {
         Ok(id)
     }
 
+    /// List all entities sorted by their id.
+    pub fn entities(&self) -> Vec<(EntityId, String)> {
+        let mut out: Vec<(EntityId, String)> = self
+            .atoms
+            .entities
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        out.sort_by_key(|(id, _)| *id);
+        out
+    }
+
     /// Insert or return an existing predicate by name.
     pub fn intern_predicate(&mut self, name: &str) -> Result<PredicateId> {
         self.ensure_non_empty(name, "predicate name")?;
@@ -119,6 +137,18 @@ impl PruStore {
         self.atoms.predicates.insert(id, name.to_string());
         self.persist_atoms()?;
         Ok(id)
+    }
+
+    /// List all predicates sorted by their id.
+    pub fn predicates(&self) -> Vec<(PredicateId, String)> {
+        let mut out: Vec<(PredicateId, String)> = self
+            .atoms
+            .predicates
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        out.sort_by_key(|(id, _)| *id);
+        out
     }
 
     /// Insert or return an existing literal by value.
@@ -133,9 +163,30 @@ impl PruStore {
         Ok(id)
     }
 
+    /// List all literals sorted by their id.
+    pub fn literals(&self) -> Vec<(LiteralId, String)> {
+        let mut out: Vec<(LiteralId, String)> = self
+            .atoms
+            .literals
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        out.sort_by_key(|(id, _)| *id);
+        out
+    }
+
     /// Look up an entity name by id.
     pub fn get_entity_name(&self, id: EntityId) -> Option<String> {
         self.atoms.entities.get(&id).cloned()
+    }
+
+    /// Look up an entity id by name.
+    pub fn get_entity_id(&self, name: &str) -> Option<EntityId> {
+        self.atoms
+            .entities
+            .iter()
+            .find(|(_, v)| v == &&name)
+            .map(|(id, _)| *id)
     }
 
     /// Look up a predicate name by id.
@@ -143,19 +194,47 @@ impl PruStore {
         self.atoms.predicates.get(&id).cloned()
     }
 
+    /// Look up a predicate id by name.
+    pub fn get_predicate_id(&self, name: &str) -> Option<PredicateId> {
+        self.atoms
+            .predicates
+            .iter()
+            .find(|(_, v)| v == &&name)
+            .map(|(id, _)| *id)
+    }
+
     /// Look up a literal value by id.
     pub fn get_literal_value(&self, id: LiteralId) -> Option<String> {
         self.atoms.literals.get(&id).cloned()
     }
 
+    /// Look up a literal id by value.
+    pub fn get_literal_id(&self, value: &str) -> Option<LiteralId> {
+        self.atoms
+            .literals
+            .iter()
+            .find(|(_, v)| v == &&value)
+            .map(|(id, _)| *id)
+    }
+
     /// Append a fact to the local fact log.
     pub fn add_fact(&mut self, fact: Fact) -> Result<()> {
+        let mut fact = fact;
         self.ensure_atom_exists(fact.subject, "subject")?;
         self.ensure_predicate_exists(fact.predicate)?;
         self.ensure_object_exists(fact.object)?;
 
+        if fact.confidence.is_none() {
+            fact.confidence = default_confidence();
+        }
+
         self.facts.facts.push(fact);
         self.persist_facts()
+    }
+
+    /// Return number of stored facts.
+    pub fn fact_count(&self) -> usize {
+        self.facts.facts.len()
     }
 
     /// Return all facts for a subject.
@@ -180,6 +259,32 @@ impl PruStore {
             .facts
             .iter()
             .filter(|f| f.subject == subj && f.predicate == pred)
+            .cloned()
+            .collect())
+    }
+
+    /// Query facts using optional filters.
+    pub fn query(&self, q: Query) -> Result<Vec<Fact>> {
+        Ok(self
+            .facts
+            .facts
+            .iter()
+            .filter(|f| match q.subject {
+                Some(s) => f.subject == s,
+                None => true,
+            })
+            .filter(|f| match q.predicate {
+                Some(p) => f.predicate == p,
+                None => true,
+            })
+            .filter(|f| match q.object {
+                Some(o) => f.object == o,
+                None => true,
+            })
+            .filter(|f| match q.min_confidence {
+                Some(min) => f.confidence.unwrap_or(1.0) >= min,
+                None => true,
+            })
             .cloned()
             .collect())
     }
@@ -248,7 +353,8 @@ impl PruStore {
     fn persist_atoms(&self) -> Result<()> {
         let path = Self::atoms_path(&self.dir);
         let tmp = path.with_extension("json.tmp");
-        serde_json::to_writer_pretty(File::create(&tmp)?, &self.atoms)?;
+        let writer = BufWriter::new(File::create(&tmp)?);
+        serde_json::to_writer_pretty(writer, &self.atoms)?;
         fs::rename(&tmp, &path)?;
         Ok(())
     }
@@ -256,10 +362,20 @@ impl PruStore {
     fn persist_facts(&self) -> Result<()> {
         let path = Self::facts_path(&self.dir);
         let tmp = path.with_extension("json.tmp");
-        serde_json::to_writer_pretty(File::create(&tmp)?, &self.facts)?;
+        let writer = BufWriter::new(File::create(&tmp)?);
+        serde_json::to_writer_pretty(writer, &self.facts)?;
         fs::rename(&tmp, &path)?;
         Ok(())
     }
+}
+
+/// Simple in-memory query filter for facts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Query {
+    pub subject: Option<EntityId>,
+    pub predicate: Option<PredicateId>,
+    pub object: Option<AtomId>,
+    pub min_confidence: Option<f32>,
 }
 
 #[cfg(test)]
@@ -282,6 +398,7 @@ mod tests {
             object: earth,
             source: None,
             timestamp: None,
+            confidence: default_confidence(),
         };
         store.add_fact(fact.clone()).unwrap();
 
