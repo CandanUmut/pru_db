@@ -1,0 +1,15 @@
+[package]
+name = "pru_py"
+version = "0.0.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "pru_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+anyhow = { workspace = true }
+pru_core = { path = "../pru_core" }

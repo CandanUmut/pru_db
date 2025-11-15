@@ -1,0 +1,28 @@
+[package]
+name = "pru_core"
+version = "0.0.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+roaring = ["dep:roaring"]   # sadece roaring'i feature ile kontrol ediyoruz
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+xxhash-rust = { workspace = true }
+memmap2 = { workspace = true }
+byteorder = { workspace = true }
+crc32fast = { workspace = true }
+zstd = { workspace = true }
+roaring = { workspace = true, optional = true }
+serde = { workspace = true }        # <-- optional değil
+serde_json = { workspace = true }   # <-- optional değil
+tempfile = { workspace = true }
+time = { workspace = true }
+libc = { workspace = true }
+xorfilter = { workspace = true }
+rand = { workspace = true }

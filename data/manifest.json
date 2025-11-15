@@ -1,0 +1,53 @@
+{
+  "segments": [
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755260743.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755260752.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-compact-1755260773.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755261253.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755261260.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-compact-1755261294.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755262003.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-1755262008.prus"
+    },
+    {
+      "kind": "Resolver",
+      "path": "resolver-compact-1755262013-906026400-4418.prus"
+    }
+  ],
+  "active_paths": [
+    "resolver-compact-1755262013-906026400-4418.prus"
+  ],
+  "archived_paths": [
+    "resolver-1755260743.prus",
+    "resolver-1755260752.prus",
+    "resolver-compact-1755260773.prus",
+    "resolver-1755261253.prus",
+    "resolver-1755261260.prus",
+    "resolver-compact-1755261294.prus",
+    "resolver-1755262003.prus",
+    "resolver-1755262008.prus"
+  ]
+}

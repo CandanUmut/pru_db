@@ -1,0 +1,15 @@
+[package]
+name = "pru_bench"
+version = "0.0.1"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+pru_core = { path = "../pru_core" }
+
+[[bench]]
+name = "postings"
+harness = false
