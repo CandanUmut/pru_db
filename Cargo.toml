@@ -4,6 +4,7 @@ members = [
   "crates/pru_cli",
   "crates/pru_py",
   "crates/pru_bench",
+  "crates/pru_gui",
 ]
 resolver = "2"
 

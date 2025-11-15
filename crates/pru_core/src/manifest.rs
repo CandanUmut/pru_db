@@ -1,5 +1,5 @@
 use crate::consts::SegmentKind;
-use crate::errors::{Result, PruError};
+use crate::errors::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -161,8 +161,7 @@ impl Manifest {
         keep.push(resolver_name.clone());
 
         // archived_paths’i de dolduralım ( bilgi amaçlı )
-        let keep_set: std::collections::HashSet<&str> =
-            keep.iter().map(|s| s.as_str()).collect();
+        let keep_set: std::collections::HashSet<&str> = keep.iter().map(|s| s.as_str()).collect();
         self.archived_paths = self
             .segments
             .iter()
