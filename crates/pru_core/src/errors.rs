@@ -20,6 +20,12 @@ pub enum PruError {
 
     #[error("Unsupported kind")]
     Unsupported,
+
+    #[error("Atom not found: {0}")]
+    AtomNotFound(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 pub type Result<T> = std::result::Result<T, PruError>;
