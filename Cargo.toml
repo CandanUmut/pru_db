@@ -5,6 +5,12 @@ members = [
   "crates/pru_py",
   "crates/pru_bench",
   "crates/pru_gui",
+  "crates/pru_media_schema",
+  "crates/pru_detectors_api",
+  "crates/pru_truth_engine",
+  "crates/pru_ingest",
+  "crates/pru_storage",
+  "apps/truth_sentinel",
 ]
 resolver = "2"
 
@@ -34,3 +40,13 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 libc = "0.2"
 xorfilter = { package = "xorfilter-rs", version = "0.5.1" }
 rand = "0.9.2"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "ico"] }
+kamadak-exif = "0.6"
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+base64 = "0.22"

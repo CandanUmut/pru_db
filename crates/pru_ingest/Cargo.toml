@@ -1,0 +1,17 @@
+[package]
+name = "pru_ingest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+image.workspace = true
+pru_core = { path = "../pru_core" }
+pru_media_schema = { path = "../pru_media_schema" }
+pru_detectors_api = { path = "../pru_detectors_api" }
+
+[dev-dependencies]
+tempfile.workspace = true
