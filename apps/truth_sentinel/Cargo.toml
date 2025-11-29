@@ -1,0 +1,23 @@
+[package]
+name = "truth_sentinel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+pru_core = { path = "../../crates/pru_core" }
+pru_media_schema = { path = "../../crates/pru_media_schema" }
+pru_detectors_api = { path = "../../crates/pru_detectors_api" }
+pru_truth_engine = { path = "../../crates/pru_truth_engine" }
+pru_ingest = { path = "../../crates/pru_ingest" }
+pru_storage = { path = "../../crates/pru_storage" }
+tempfile.workspace = true

@@ -17,3 +17,10 @@ pub use resolver::{KeyKind, ResolverKey};
 pub use resolver_store::ResolveMode; // ← ek
 pub use segment::{SegmentReader, SegmentWriter};
 pub use truth_store::{Fact, PruStore, Query};
+
+use std::sync::{Arc, Mutex};
+
+/// Shared handle type used by higher-level crates when coordinating access to a
+/// [`PruStore`]. The store itself is not thread-safe; wrapping it in a mutex
+/// makes it usable across async contexts and HTTP handlers.
+pub type PruDbHandle = Arc<Mutex<PruStore>>;
