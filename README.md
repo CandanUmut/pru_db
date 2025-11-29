@@ -106,7 +106,7 @@ Pipeline:
 
 Key components (simplified):
 
-```text
+
 crates/
   pru_core/         # Core PRU-DB store and types
   pru_media_schema/ # Media entities, predicates, helpers, reliability utils
